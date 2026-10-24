@@ -32,15 +32,15 @@ pipeline {
 
         // Nexus (docker hosted repo needs its own HTTP port, e.g. 8082)
         NEXUS_MAVEN_URL   = 'http://NEXUS_HOST:8081/repository/maven-releases/'
-        NEXUS_DOCKER_HOST = 'NEXUS_HOST:8082'
+        NEXUS_DOCKER_HOST = '44.208.15.96:8081'
 
         // JFrog Cloud trial
-        JFROG_HOST        = 'YOURTRIAL.jfrog.io'
-        JFROG_MAVEN_URL   = 'https://YOURTRIAL.jfrog.io/artifactory/demo-maven-local'
+        JFROG_HOST        = 'trialmzbpgd.jfrog.io'
+        JFROG_MAVEN_URL   = 'https://trialmzbpgd.jfrog.io/artifactory/demo-maven-local'
         JFROG_DOCKER_REPO = 'demo-docker-local'
 
         // Argo CD
-        ARGOCD_SERVER     = 'ARGOCD_HOST:PORT'
+        ARGOCD_SERVER     = '44.208.15.96:8443'
     }
     // --------------------------------------------------------------------------
 
