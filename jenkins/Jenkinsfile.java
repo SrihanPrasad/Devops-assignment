@@ -234,6 +234,6 @@ pipeline {
     post {
         success { echo "Pipeline OK - ${APP_NAME}:${VERSION} deployed from Nexus and from JFrog" }
         failure { echo 'Pipeline FAILED - check the failing stage log above' }
-        always  { cleanWs(deleteDirs: true, notFailBuild: true) }
+        always  { echo 'Keeping workspace for debugging' }
     }
 }
