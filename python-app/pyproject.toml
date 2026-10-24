@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "demo-py-app"
+version = "1.0.0"
+description = "Demo Flask service for the CI/CD assignment"
+requires-python = ">=3.9"
+dependencies = [
+    "flask>=3.0",
+    "gunicorn>=22.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "requests>=2.31",
+    "locust>=2.29",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "functional: tests that start a real HTTP server",
+]

@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: java-app-jfrog
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_USER/YOUR_REPO.git   # <-- change me
+    targetRevision: main
+    path: gitops/java-app/overlays/jfrog
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: java-app-jfrog
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

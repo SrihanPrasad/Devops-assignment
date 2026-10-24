@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: python-app-nexus
+resources:
+  - ../../base
+# Pull secret created by the pipeline / README step: regcred-nexus
+patches:
+  - target:
+      kind: Deployment
+      name: python-app
+    patch: |-
+      - op: add
+        path: /spec/template/spec/imagePullSecrets
+        value:
+          - name: regcred-nexus
+# The deploy stage runs: argocd app set ... --kustomize-image
+# (or edits this block and commits - pure GitOps). Values below are placeholders.
+images:
+  - name: python-app
+    newName: REGISTRY_HOST/python-app
+    newTag: latest

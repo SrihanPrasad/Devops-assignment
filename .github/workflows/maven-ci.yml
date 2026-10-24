@@ -1,0 +1,181 @@
+# =============================================================================
+# TASK 6 - GitHub Actions: Maven app
+#   build -> unit test -> functional test -> performance test -> Sonar scan
+#   -> docker build -> push to Nexus & JFrog
+#
+# Repo settings needed (Settings -> Secrets and variables -> Actions):
+#   Secrets  : SONAR_TOKEN, NEXUS_USER, NEXUS_PASSWORD, JFROG_USER, JFROG_PASSWORD
+#   Variables: SONAR_HOST_URL, SONAR_ORGANIZATION (SonarQube Cloud only),
+#              NEXUS_MAVEN_URL, NEXUS_DOCKER_HOST,
+#              JFROG_HOST, JFROG_MAVEN_URL, JFROG_DOCKER_REPO,
+#              RUNNER_LABEL (optional - e.g. "self-hosted" when Nexus/Sonar are private)
+#
+# GitHub-hosted runners can only reach PUBLIC URLs. If your Nexus/SonarQube run on
+# a laptop or private VM, install a self-hosted runner there and set RUNNER_LABEL.
+# =============================================================================
+name: maven-ci
+
+on:
+  push:
+    branches: [main]
+    paths: ['java-app/**', '.github/workflows/maven-ci.yml']
+  pull_request:
+    paths: ['java-app/**']
+  workflow_dispatch:
+
+concurrency:
+  group: maven-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_NAME: demo-app
+  VERSION: 1.0.${{ github.run_number }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  build-and-test:
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: java-app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # full history gives Sonar accurate blame / new-code detection
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set version
+        run: mvn -B -ntp -q versions:set -DnewVersion=${VERSION} -DgenerateBackupPoms=false
+
+      - name: Maven build
+        run: mvn -B -ntp clean package -DskipTests
+
+      - name: Unit tests
+        run: mvn -B -ntp test
+
+      - name: Functional tests
+        run: mvn -B -ntp failsafe:integration-test failsafe:verify
+
+      - name: Performance tests (JMeter)
+        run: |
+          set -e
+          PORT=18080 java -jar target/demo-app.jar & APP_PID=$!
+          trap 'kill $APP_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do curl -sf http://localhost:18080/health >/dev/null && break; sleep 1; done
+
+          rm -f perf/results.jtl
+          docker run --rm --network host -v "$PWD/perf":/work justb4/jmeter:5.5 \
+            -n -t /work/load-test.jmx -Jhost=localhost -Jport=18080 -Jthreads=10 -Jloops=50 -l /work/results.jtl
+
+          FAILED=$(awk -F, 'NR>1 && $8=="false"{c++} END{print c+0}' perf/results.jtl)
+          TOTAL=$(awk 'END{print NR-1}' perf/results.jtl)
+          echo "JMeter: $TOTAL samples, $FAILED failed"
+          [ "$FAILED" -eq 0 ]
+
+      - name: SonarQube scan
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+        run: |
+          EXTRA=""
+          [ -n "$SONAR_ORGANIZATION" ] && EXTRA="-Dsonar.organization=$SONAR_ORGANIZATION"
+          mvn -B -ntp org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
+            -Dsonar.projectKey=${APP_NAME} -Dsonar.host.url="$SONAR_HOST_URL" \
+            -Dsonar.qualitygate.wait=true $EXTRA
+
+      - name: Keep test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            java-app/target/surefire-reports
+            java-app/target/failsafe-reports
+            java-app/perf/results.jtl
+          if-no-files-found: ignore
+
+      - name: Hand the built jar to the publish job
+        run: cp pom.xml target/pom.versioned.xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            java-app/target/demo-app.jar
+            java-app/target/pom.versioned.xml
+
+  # ---------------------------------------------------------------------------
+  docker-and-publish:
+    needs: build-and-test
+    if: github.event_name != 'pull_request'        # never push artifacts from PRs
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: java-app
+    env:
+      NEXUS_USER: ${{ secrets.NEXUS_USER }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      JFROG_USER: ${{ secrets.JFROG_USER }}
+      JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
+      NEXUS_MAVEN_URL: ${{ vars.NEXUS_MAVEN_URL }}
+      NEXUS_DOCKER_HOST: ${{ vars.NEXUS_DOCKER_HOST }}
+      JFROG_HOST: ${{ vars.JFROG_HOST }}
+      JFROG_MAVEN_URL: ${{ vars.JFROG_MAVEN_URL }}
+      JFROG_DOCKER_REPO: ${{ vars.JFROG_DOCKER_REPO }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: java-app/target
+
+      - name: Docker build
+        run: docker build -t ${APP_NAME}:${VERSION} .
+
+      - name: Push jar + image to Nexus
+        run: |
+          mvn -B -ntp -s ci/settings.xml deploy:deploy-file \
+            -Dfile=target/demo-app.jar -DpomFile=target/pom.versioned.xml \
+            -DrepositoryId=nexus -Durl="$NEXUS_MAVEN_URL"
+
+          echo "$NEXUS_PASSWORD" | docker login "$NEXUS_DOCKER_HOST" -u "$NEXUS_USER" --password-stdin
+          docker tag  ${APP_NAME}:${VERSION} "$NEXUS_DOCKER_HOST/${APP_NAME}:${VERSION}"
+          docker push "$NEXUS_DOCKER_HOST/${APP_NAME}:${VERSION}"
+
+      - name: Push jar + image to JFrog
+        run: |
+          mvn -B -ntp -s ci/settings.xml deploy:deploy-file \
+            -Dfile=target/demo-app.jar -DpomFile=target/pom.versioned.xml \
+            -DrepositoryId=jfrog -Durl="$JFROG_MAVEN_URL"
+
+          echo "$JFROG_PASSWORD" | docker login "$JFROG_HOST" -u "$JFROG_USER" --password-stdin
+          docker tag  ${APP_NAME}:${VERSION} "$JFROG_HOST/$JFROG_DOCKER_REPO/${APP_NAME}:${VERSION}"
+          docker push "$JFROG_HOST/$JFROG_DOCKER_REPO/${APP_NAME}:${VERSION}"
+
+      - name: Logout from registries
+        if: always()
+        run: |
+          docker logout "$NEXUS_DOCKER_HOST" || true
+          docker logout "$JFROG_HOST" || true
+
+      - name: Summary
+        run: |
+          {
+            echo "### Published ${APP_NAME} ${VERSION}"
+            echo "- Nexus : \`$NEXUS_DOCKER_HOST/${APP_NAME}:${VERSION}\`"
+            echo "- JFrog : \`$JFROG_HOST/$JFROG_DOCKER_REPO/${APP_NAME}:${VERSION}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

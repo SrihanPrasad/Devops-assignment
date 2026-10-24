@@ -1,0 +1,13 @@
+scripts/config.env
+*.jtl
+target/
+.venv/
+dist/
+build/
+*.egg-info/
+__pycache__/
+.terraform/
+*.tfstate*
+*.tfvars
+!*.tfvars.example
+.env

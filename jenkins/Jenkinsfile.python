@@ -1,0 +1,249 @@
+// =============================================================================
+// TASK 2 - Jenkins pipeline: Python app
+//   python build (wheel) -> unit test -> functional test -> performance test
+//   -> Sonar scan -> docker build -> push to Nexus & JFrog -> Argo CD deploy
+//
+// Job type : Pipeline  ->  "Pipeline script from SCM"  ->  Script Path: jenkins/Jenkinsfile.python
+// Agent has: python3 (+venv), Docker, argocd CLI
+// Jenkins: Global Tool "sonar-scanner" (type SonarQube Scanner) + SonarQube server "sonarqube"
+//
+// Credentials: nexus-creds, jfrog-creds (username/password), argocd-token (secret text)
+// =============================================================================
+
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        timeout(time: 45, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+    }
+
+    // ----- EDIT THESE FOR YOUR TRIAL INSTANCES --------------------------------
+    environment {
+        APP_NAME          = 'demo-py-app'
+        APP_DIR           = 'python-app'
+        ARGO_APP          = 'python-app'                   // argo apps: python-app-nexus / python-app-jfrog
+        VERSION           = "1.0.${BUILD_NUMBER}"
+
+        // Nexus: pypi (hosted) repo for the wheel + docker (hosted) repo on its own port
+        NEXUS_PYPI_URL    = 'http://NEXUS_HOST:8081/repository/pypi-hosted/'
+        NEXUS_DOCKER_HOST = 'NEXUS_HOST:8082'
+
+        // JFrog Cloud trial: PyPI local repo + Docker local repo
+        JFROG_HOST        = 'YOURTRIAL.jfrog.io'
+        JFROG_PYPI_URL    = 'https://YOURTRIAL.jfrog.io/artifactory/api/pypi/demo-pypi-local'
+        JFROG_DOCKER_REPO = 'demo-docker-local'
+
+        ARGOCD_SERVER     = 'ARGOCD_HOST:PORT'
+        VENV              = "${WORKSPACE}/.venv"
+    }
+    // --------------------------------------------------------------------------
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+                sh 'python3 --version'
+            }
+        }
+
+        stage('Python Build (wheel)') {
+            steps {
+                dir(APP_DIR) {
+                    sh '''
+                        set -e
+                        python3 -m venv "$VENV"
+                        . "$VENV/bin/activate"
+                        pip install -q --upgrade pip build twine
+                        pip install -q -e ".[test]"
+
+                        # stamp the build number into the wheel version
+                        sed -i "s/^version = .*/version = \\"$VERSION\\"/" pyproject.toml
+
+                        rm -rf dist build
+                        python -m build --wheel
+                        ls -l dist
+                    '''
+                }
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                dir(APP_DIR) {
+                    sh '''
+                        . "$VENV/bin/activate"
+                        pytest tests/unit -q --junitxml=junit-unit.xml \
+                               --cov=app --cov-report=xml:coverage.xml --cov-report=term
+                    '''
+                }
+            }
+            post {
+                always { junit allowEmptyResults: true, testResults: "${APP_DIR}/junit-unit.xml" }
+            }
+        }
+
+        stage('Functional Tests') {
+            steps {
+                dir(APP_DIR) {
+                    sh '''
+                        . "$VENV/bin/activate"
+                        pytest tests/functional -q --junitxml=junit-functional.xml
+                    '''
+                }
+            }
+            post {
+                always { junit allowEmptyResults: true, testResults: "${APP_DIR}/junit-functional.xml" }
+            }
+        }
+
+        stage('Performance Tests') {
+            steps {
+                dir(APP_DIR) {
+                    sh '''
+                        set -e
+                        . "$VENV/bin/activate"
+                        gunicorn -b 127.0.0.1:18000 app.wsgi:app & APP_PID=$!
+                        trap "kill $APP_PID 2>/dev/null || true" EXIT
+
+                        for i in $(seq 1 30); do
+                          curl -sf http://127.0.0.1:18000/health >/dev/null && break
+                          sleep 1
+                        done
+
+                        # --exit-code-on-error 1 -> non-zero exit if any request failed
+                        locust -f perf/locustfile.py --headless -u 10 -r 5 -t 30s \
+                               --host http://127.0.0.1:18000 --csv perf/results --exit-code-on-error 1
+                    '''
+                }
+            }
+            post {
+                always { archiveArtifacts artifacts: "${APP_DIR}/perf/results*.csv", allowEmptyArchive: true }
+            }
+        }
+
+        stage('SonarQube Scan') {
+            steps {
+                dir(APP_DIR) {
+                    script { env.SCANNER_HOME = tool 'sonar-scanner' }
+                    withSonarQubeEnv('sonarqube') {
+                        sh '"$SCANNER_HOME/bin/sonar-scanner" -Dsonar.projectVersion=$VERSION'
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                dir(APP_DIR) {
+                    sh 'docker build -t $APP_NAME:$VERSION .'
+                }
+            }
+        }
+
+        stage('Publish Artifacts') {
+            parallel {
+
+                stage('Push to Nexus') {
+                    steps {
+                        withCredentials([usernamePassword(credentialsId: 'nexus-creds',
+                                usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASSWORD')]) {
+                            dir(APP_DIR) {
+                                // 1) wheel -> Nexus PyPI repo
+                                sh '''
+                                    . "$VENV/bin/activate"
+                                    TWINE_USERNAME="$NEXUS_USER" TWINE_PASSWORD="$NEXUS_PASSWORD" \
+                                      twine upload --non-interactive --repository-url "$NEXUS_PYPI_URL" dist/*.whl
+                                '''
+                            }
+                            // 2) image -> Nexus docker repo
+                            sh '''
+                                echo "$NEXUS_PASSWORD" | docker login "$NEXUS_DOCKER_HOST" -u "$NEXUS_USER" --password-stdin
+                                docker tag  $APP_NAME:$VERSION $NEXUS_DOCKER_HOST/$APP_NAME:$VERSION
+                                docker push $NEXUS_DOCKER_HOST/$APP_NAME:$VERSION
+                                docker logout "$NEXUS_DOCKER_HOST"
+                            '''
+                        }
+                    }
+                }
+
+                stage('Push to JFrog') {
+                    steps {
+                        withCredentials([usernamePassword(credentialsId: 'jfrog-creds',
+                                usernameVariable: 'JFROG_USER', passwordVariable: 'JFROG_PASSWORD')]) {
+                            dir(APP_DIR) {
+                                sh '''
+                                    . "$VENV/bin/activate"
+                                    TWINE_USERNAME="$JFROG_USER" TWINE_PASSWORD="$JFROG_PASSWORD" \
+                                      twine upload --non-interactive --repository-url "$JFROG_PYPI_URL" dist/*.whl
+                                '''
+                            }
+                            sh '''
+                                echo "$JFROG_PASSWORD" | docker login "$JFROG_HOST" -u "$JFROG_USER" --password-stdin
+                                docker tag  $APP_NAME:$VERSION $JFROG_HOST/$JFROG_DOCKER_REPO/$APP_NAME:$VERSION
+                                docker push $JFROG_HOST/$JFROG_DOCKER_REPO/$APP_NAME:$VERSION
+                                docker logout "$JFROG_HOST"
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Deploy via Argo CD') {
+            parallel {
+
+                stage('Nexus image -> Argo CD') {
+                    steps {
+                        withCredentials([string(credentialsId: 'argocd-token', variable: 'ARGOCD_AUTH_TOKEN')]) {
+                            sh '''
+                                export ARGOCD_SERVER ARGOCD_AUTH_TOKEN
+                                APP=${ARGO_APP}-nexus
+                                IMAGE=$NEXUS_DOCKER_HOST/$APP_NAME:$VERSION
+
+                                argocd app set  $APP --grpc-web --insecure --kustomize-image ${ARGO_APP}=$IMAGE
+                                argocd app sync $APP --grpc-web --insecure
+                                argocd app wait $APP --grpc-web --insecure --health --timeout 180
+                                argocd app get  $APP --grpc-web --insecure | grep -E "Health Status|Sync Status"
+                            '''
+                        }
+                    }
+                }
+
+                stage('JFrog image -> Argo CD') {
+                    steps {
+                        withCredentials([string(credentialsId: 'argocd-token', variable: 'ARGOCD_AUTH_TOKEN')]) {
+                            sh '''
+                                export ARGOCD_SERVER ARGOCD_AUTH_TOKEN
+                                APP=${ARGO_APP}-jfrog
+                                IMAGE=$JFROG_HOST/$JFROG_DOCKER_REPO/$APP_NAME:$VERSION
+
+                                argocd app set  $APP --grpc-web --insecure --kustomize-image ${ARGO_APP}=$IMAGE
+                                argocd app sync $APP --grpc-web --insecure
+                                argocd app wait $APP --grpc-web --insecure --health --timeout 180
+                                argocd app get  $APP --grpc-web --insecure | grep -E "Health Status|Sync Status"
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success { echo "Pipeline OK - ${APP_NAME}:${VERSION} deployed from Nexus and from JFrog" }
+        failure { echo 'Pipeline FAILED - check the failing stage log above' }
+        always  { cleanWs(deleteDirs: true, notFailBuild: true) }
+    }
+}

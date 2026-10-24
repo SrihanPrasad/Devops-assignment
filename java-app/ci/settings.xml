@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Maven settings used by Jenkins, GitHub Actions and the shell script.
+  No secrets live in this file: usernames/passwords come from environment
+  variables that the CI system injects from its secret store.
+  Use with:  mvn -s ci/settings.xml ...
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+  <servers>
+    <server>
+      <id>nexus</id>
+      <username>${env.NEXUS_USER}</username>
+      <password>${env.NEXUS_PASSWORD}</password>
+    </server>
+    <server>
+      <id>jfrog</id>
+      <username>${env.JFROG_USER}</username>
+      <password>${env.JFROG_PASSWORD}</password>
+    </server>
+  </servers>
+</settings>

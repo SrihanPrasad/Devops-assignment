@@ -1,0 +1,7 @@
+# Copy to backend.hcl (or generate it: cd bootstrap && terraform output -raw backend_hcl > ../backend.hcl)
+bucket         = "tfstate-<ACCOUNT_ID>-ap-south-1"
+region         = "ap-south-1"
+dynamodb_table = "terraform-state-locks"
+encrypt        = true
+# The state "key" is passed per environment on the command line so dev and prod never share state:
+#   -backend-config="key=web/dev/terraform.tfstate"
