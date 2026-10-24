@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/YOUR_USER/YOUR_REPO.git   # <-- change me
+    repoURL: https://github.com/SrihanPrasad/Devops-assignment.git   # <-- change me
     targetRevision: main
     path: gitops/java-app/overlays/nexus
   destination:
