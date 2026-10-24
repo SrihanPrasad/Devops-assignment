@@ -17,5 +17,5 @@ patches:
 # (or edits this block and commits - pure GitOps). Values below are placeholders.
 images:
   - name: java-app
-    newName: REGISTRY_HOST/java-app
+    newName: trialmzbpgd.jfrog.io/demo-docker-local/demo-app
     newTag: latest
