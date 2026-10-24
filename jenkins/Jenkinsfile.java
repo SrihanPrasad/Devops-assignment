@@ -29,7 +29,6 @@ pipeline {
     }
 
     stages {
-
         // ---------------------------------------------------------
         // 1. Checkout source code
         // ---------------------------------------------------------
@@ -43,8 +42,7 @@ pipeline {
         // ---------------------------------------------------------
         // 2. Maven build
         // ---------------------------------------------------------
-        stage('Maven build')
-        {
+        stage('Maven build') {
             steps {
                 dir(APP_DIR) {
                     sh "mvn -B -q versions:set -DnewVersion=${VERSION} -DgenerateBackupPoms=false"
@@ -177,7 +175,6 @@ pipeline {
         // ---------------------------------------------------------
         stage('Publish Artifacts') {
             parallel {
-
                 stage('Push to Nexus') {
                     steps {
                         withCredentials([
@@ -202,7 +199,6 @@ pipeline {
                                     "$NEXUS_DOCKER_HOST/$APP_NAME:$VERSION"
 
                                 docker push "$NEXUS_DOCKER_HOST/$APP_NAME:$VERSION"
-
                                 docker logout "$NEXUS_DOCKER_HOST"
                             '''
                         }
@@ -256,7 +252,6 @@ pipeline {
                 ]) {
                     sh '''
                         set -e
-
                         export ARGOCD_SERVER
                         export ARGOCD_AUTH_TOKEN
 
@@ -281,10 +276,6 @@ pipeline {
                             --health \
                             --timeout 300
 
-                        argocd app get "$APP" \
-                            --grpc-web \
-                            --insecure
-
                         echo "Nexus application deployment completed."
 
                         # Deploy JFrog after Nexus completes
@@ -307,10 +298,6 @@ pipeline {
                             --sync \
                             --health \
                             --timeout 300
-
-                        argocd app get "$APP" \
-                            --grpc-web \
-                            --insecure
 
                         echo "JFrog application deployment completed."
                         echo "Both Argo CD applications deployed successfully."
