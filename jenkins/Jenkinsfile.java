@@ -101,7 +101,7 @@ pipeline {
 
                         rm -f perf/results.jtl
                         # JMeter runs in a container so nothing has to be installed on the agent
-                        docker run --rm --network host \
+                        docker run --rm --network container:jenkins \
                           -v /var/lib/docker/volumes/jenkins_home/_data/workspace/maven-pipeline/java-app/perf:/work \
                           justb4/jmeter:5.5 \
                           -n -t /work/load-test.jmx -Jhost=localhost -Jport=18080 \
