@@ -31,7 +31,7 @@ pipeline {
         VERSION           = "1.0.${BUILD_NUMBER}"
 
         // Nexus (docker hosted repo needs its own HTTP port, e.g. 8082)
-        NEXUS_MAVEN_URL   = 'http://NEXUS_HOST:8081/repository/maven-releases/'
+        NEXUS_MAVEN_URL   = 'http://172.31.21.234:8081/repository/maven-releases/'
         NEXUS_DOCKER_HOST = '44.208.15.96:8081'
 
         // JFrog Cloud trial
