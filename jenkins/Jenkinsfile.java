@@ -125,7 +125,7 @@ pipeline {
                 dir(APP_DIR) {
                     withSonarQubeEnv('sonarqube') {      // injects SONAR_HOST_URL + token
                         sh '''
-                            mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
+                            mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:5.7.0.6970:sonar \
                                 -Dsonar.projectKey=demo-app -Dsonar.projectName=demo-app
                         '''
                     }
