@@ -1,18 +1,3 @@
-// =============================================================================
-// TASK 1 - Jenkins pipeline: Maven app
-//   build -> unit test -> functional test -> performance test -> Sonar scan
-//   -> docker build -> push to Nexus & JFrog -> Argo CD deploy (sequentially)
-//
-// Job type : Pipeline -> Pipeline script from SCM
-// Script Path: jenkins/Jenkinsfile.java
-//
-// Jenkins credentials required:
-//   nexus-creds   Username/password
-//   jfrog-creds   Username/password
-//   argocd-token  Secret text
-//
-// SonarQube server name: sonarqube
-// =============================================================================
 
 pipeline {
     agent any
@@ -58,7 +43,8 @@ pipeline {
         // ---------------------------------------------------------
         // 2. Maven build
         // ---------------------------------------------------------
-        stage('Maven Build') {
+        stage('Maven build')
+        {
             steps {
                 dir(APP_DIR) {
                     sh "mvn -B -q versions:set -DnewVersion=${VERSION} -DgenerateBackupPoms=false"
@@ -258,7 +244,7 @@ pipeline {
         }
 
         // ---------------------------------------------------------
-        // 10. Deploy using Argo CD - SEQUENTIAL, NOT PARALLEL
+        // 10. Deploy using Argo CD - SEQUENTIAL
         // ---------------------------------------------------------
         stage('Deploy via Argo CD') {
             steps {
@@ -274,9 +260,7 @@ pipeline {
                         export ARGOCD_SERVER
                         export ARGOCD_AUTH_TOKEN
 
-                        # =================================================
-                        # Deploy Nexus image first
-                        # =================================================
+                        # Deploy Nexus first
                         APP=${ARGO_APP}-nexus
                         IMAGE=$NEXUS_DOCKER_HOST/$APP_NAME:$VERSION
 
@@ -288,17 +272,14 @@ pipeline {
                         argocd app set "$APP" \
                             --grpc-web \
                             --insecure \
-                            --kustomize-image "${ARGO_APP}=$IMAGE"
-
-                        argocd app sync "$APP" \
-                            --grpc-web \
-                            --insecure
+                            --kustomize-image "${APP_NAME}=$IMAGE"
 
                         argocd app wait "$APP" \
                             --grpc-web \
                             --insecure \
+                            --sync \
                             --health \
-                            --timeout 180
+                            --timeout 300
 
                         argocd app get "$APP" \
                             --grpc-web \
@@ -306,9 +287,7 @@ pipeline {
 
                         echo "Nexus application deployment completed."
 
-                        # =================================================
-                        # Deploy JFrog image after Nexus completes
-                        # =================================================
+                        # Deploy JFrog after Nexus completes
                         APP=${ARGO_APP}-jfrog
                         IMAGE=$JFROG_HOST/$JFROG_DOCKER_REPO/$APP_NAME:$VERSION
 
@@ -320,17 +299,14 @@ pipeline {
                         argocd app set "$APP" \
                             --grpc-web \
                             --insecure \
-                            --kustomize-image "${ARGO_APP}=$IMAGE"
-
-                        argocd app sync "$APP" \
-                            --grpc-web \
-                            --insecure
+                            --kustomize-image "${APP_NAME}=$IMAGE"
 
                         argocd app wait "$APP" \
                             --grpc-web \
                             --insecure \
+                            --sync \
                             --health \
-                            --timeout 180
+                            --timeout 300
 
                         argocd app get "$APP" \
                             --grpc-web \
