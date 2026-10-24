@@ -1,4 +1,3 @@
-```groovy
 // =============================================================================
 // TASK 1 - Jenkins pipeline: Maven app
 //   build -> unit test -> functional test -> performance test -> Sonar scan
@@ -360,4 +359,3 @@ pipeline {
         }
     }
 }
-```
