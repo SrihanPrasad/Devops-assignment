@@ -40,7 +40,7 @@ pipeline {
         JFROG_DOCKER_REPO = 'demo-docker-local'
 
         // Argo CD
-        ARGOCD_SERVER     = '44.208.15.96:8443'
+        ARGOCD_SERVER     = '172.17.0.1:8443'
     }
     // --------------------------------------------------------------------------
 
