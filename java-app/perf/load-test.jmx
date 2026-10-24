@@ -53,19 +53,6 @@
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel"
                        testclass="Arguments" enabled="true">
             <collectionProp name="Arguments.arguments">
-              <elementProp name="a" elementType="HTTPArgument">
-                <stringProp name="Argument.name">a</stringProp>
-                <stringProp name="Argument.value">20</stringProp>
-                <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <boolProp name="HTTPArgument.use_equals">true</boolProp>
-              </elementProp>
-              <elementProp name="b" elementType="HTTPArgument">
-                <stringProp name="Argument.name">b</stringProp>
-                <stringProp name="Argument.value">22</stringProp>
-                <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <boolProp name="HTTPArgument.use_equals">true</boolProp>
-              </elementProp>
-            </collectionProp>
           </elementProp>
           <stringProp name="HTTPSampler.domain">${__P(host,localhost)}</stringProp>
           <stringProp name="HTTPSampler.port">${__P(port,8080)}</stringProp>
