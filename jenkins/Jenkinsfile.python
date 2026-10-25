@@ -28,15 +28,15 @@ pipeline {
         VERSION           = "1.0.${BUILD_NUMBER}"
 
         // Nexus: pypi (hosted) repo for the wheel + docker (hosted) repo on its own port
-        NEXUS_PYPI_URL    = 'http://NEXUS_HOST:8081/repository/pypi-hosted/'
-        NEXUS_DOCKER_HOST = 'NEXUS_HOST:8082'
+        NEXUS_PYPI_URL    = 'http://172.31.21.234:8081/repository/pypi-hosted/'
+        NEXUS_DOCKER_HOST = '44.208.15.96:8082'
 
         // JFrog Cloud trial: PyPI local repo + Docker local repo
-        JFROG_HOST        = 'YOURTRIAL.jfrog.io'
-        JFROG_PYPI_URL    = 'https://YOURTRIAL.jfrog.io/artifactory/api/pypi/demo-pypi-local'
+        JFROG_HOST        = 'trialmzbpgd.jfrog.io'
+        JFROG_PYPI_URL    = 'https://trialmzbpgd.jfrog.io/artifactory/api/pypi/demo-pypi-local'
         JFROG_DOCKER_REPO = 'demo-docker-local'
 
-        ARGOCD_SERVER     = 'ARGOCD_HOST:PORT'
+        ARGOCD_SERVER     = '172.17.0.1:8443'
         VENV              = "${WORKSPACE}/.venv"
     }
     // --------------------------------------------------------------------------
